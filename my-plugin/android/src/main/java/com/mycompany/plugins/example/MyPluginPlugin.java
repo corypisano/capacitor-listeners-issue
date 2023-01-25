@@ -1,7 +1,14 @@
 package com.mycompany.plugins.example;
 
+import android.content.BroadcastReceiver;
+import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
+import android.os.Build;
 import android.os.CountDownTimer;
 import android.util.Log;
+
+import androidx.core.content.ContextCompat;
 
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
@@ -17,26 +24,61 @@ public class MyPluginPlugin extends Plugin {
 
     @Override
     public void load() {
-        Log.d(TAG, "load() called");
+        Log.d(TAG, "MyPlugin.load()");
+        this.handleStartTimer();
+    }
 
-        // debug log for duration of timer
-        Long millisInFuture = 1800000L; // for 30 minutes
-        Long countDownInterval = 15000L; // every 15 seconds
-        new CountDownTimer(millisInFuture, countDownInterval) {
-            public void onTick(long millisUntilFinished) {
-                Long secondsRemaining = millisUntilFinished / 1000;
-                Log.d(TAG, "seconds remaining: " + secondsRemaining);
+    public void handleStartTimer() {
+        Intent intent = new Intent(this.getContext(), BroadcastService.class);
+        intent.putExtra("inputExtra", "");
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            Log.d(TAG, "handleStartTimer: startForegroundService");
+            ContextCompat.startForegroundService(this.getContext(), intent);
+        } else {
+            Log.d(TAG, "handleStartTimer: didnt start foreground service, unexpected sdk version");
+        }
+    }
 
-                // emit plugin event
-                JSObject ret = new JSObject();
-                ret.put("secondsRemaining", secondsRemaining);
-                notifyListeners("myPluginEvent", ret);
+    final private BroadcastReceiver broadcastReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            emitPluginEvent(intent);
+        }
+    };
+
+    @Override
+    public void handleOnResume() {
+        Log.i(TAG, "handleOnResume: Registered broadcast receiver");
+        this.getContext().registerReceiver(broadcastReceiver, new IntentFilter(BroadcastService.COUNTDOWN_BR));
+        super.handleOnResume();
+    }
+
+    @Override
+    public void handleOnDestroy() {
+        Log.i(TAG, "handleOnDestroy");
+        super.handleOnDestroy();
+    }
+
+    private void emitPluginEvent(Intent intent) {
+        if (intent.getExtras() != null) {
+            long countdown = intent.getLongExtra("countdown", 0);
+            long seconds = countdown % 60;
+            long minutes = (countdown / 60) % 60;
+            String time = (minutes + "m : " + seconds + "s");
+           
+            Log.d(TAG, "time: " + time);
+
+            boolean countdownTimerFinished = intent.getBooleanExtra("countdownTimerFinished", false);
+
+            // emit plugin event
+            JSObject ret = new JSObject();
+            ret.put("time", time);
+            if (countdownTimerFinished) {
+                Log.d(TAG, "countdownTimerFinished");
+                ret.put("countdownTimerFinished", countdownTimerFinished);
             }
-
-            public void onFinish() {
-                Log.d(TAG, "done!");
-            }
-        }.start();
+            notifyListeners("myPluginEvent", ret);
+        }
     }
 
     @PluginMethod
